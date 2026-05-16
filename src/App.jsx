@@ -4,7 +4,8 @@ import {
   Wifi, 
   WifiOff, 
   Loader2, 
-  Share2 
+  Share2,
+  History 
 } from 'lucide-react';
 import { auth, db, signInAnonymously } from './firebase';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
@@ -12,6 +13,37 @@ import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 // Componentes Premium
 import ListaCard from './components/ListaCard';
 import RacharCard from './components/RacharCard';
+import HistoricoModal from './components/HistoricoModal';
+
+// --- Persistência de histórico (localStorage) ---
+const LAST_LIST_KEY = 'mercado_facil_last_list_id';
+const HISTORY_KEY = 'mercado_facil_list_history';
+const MAX_HISTORY = 10;
+
+function getLastListId() {
+  return localStorage.getItem(LAST_LIST_KEY);
+}
+function saveLastListId(id) {
+  localStorage.setItem(LAST_LIST_KEY, id);
+}
+function getHistory() {
+  try {
+    const saved = localStorage.getItem(HISTORY_KEY);
+    return saved ? JSON.parse(saved) : [];
+  } catch { return []; }
+}
+function updateHistoryEntry(id, itemCount) {
+  let history = getHistory();
+  history = history.filter(h => h.id !== id);
+  history.unshift({ id, lastUsed: Date.now(), itemCount });
+  if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
+function removeHistoryEntry(id) {
+  let history = getHistory();
+  history = history.filter(h => h.id !== id);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+}
 
 const initialBuyers = [
   { id: '1', name: 'Família 1', heads: 4 },
@@ -32,17 +64,27 @@ function App() {
   
   // ID da lista (vinda da URL ou gerada)
   const [listId, setListId] = useState('');
+  const [showHistorico, setShowHistorico] = useState(false);
+  const [listHistory, setListHistory] = useState([]);
 
   useEffect(() => {
-    // Gerenciar ID da Lista
+    // Gerenciar ID da Lista — com proteção contra perda
     const params = new URLSearchParams(window.location.search);
     let currentId = params.get('list');
     
     if (!currentId) {
-      currentId = crypto.randomUUID().split('-')[0];
-      params.set('list', currentId);
-      window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+      // 1) Tenta recuperar o último ID do localStorage
+      currentId = getLastListId();
     }
+    if (!currentId) {
+      // 2) Nada salvo — gera um novo
+      currentId = crypto.randomUUID().split('-')[0];
+    }
+
+    // Atualiza URL e persiste no localStorage
+    params.set('list', currentId);
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    saveLastListId(currentId);
     setListId(currentId);
 
     // Autenticação Anônima
@@ -77,6 +119,13 @@ function App() {
 
     return () => unsubscribe();
   }, [user, listId]);
+
+  // Atualiza o histórico sempre que a lista muda
+  useEffect(() => {
+    if (listId) {
+      updateHistoryEntry(listId, items.length);
+    }
+  }, [items, listId]);
 
   const updateSharedState = async (updates) => {
     if (!user || !listId) return;
@@ -130,6 +179,12 @@ function App() {
     updateSharedState({ items: updated });
   };
 
+  const editItem = (id, newText) => {
+    const updated = items.map(i => i.id === id ? { ...i, text: newText } : i);
+    setItems(updated);
+    updateSharedState({ items: updated });
+  };
+
   const clearChecked = () => {
     const updated = items.filter(i => !i.checked);
     setItems(updated);
@@ -176,6 +231,42 @@ function App() {
     }
   };
 
+  // --- Handlers do Histórico ---
+  const handleShowHistorico = () => {
+    setListHistory(getHistory());
+    setShowHistorico(true);
+  };
+
+  const handleNewList = () => {
+    const newId = crypto.randomUUID().split('-')[0];
+    saveLastListId(newId);
+    const params = new URLSearchParams(window.location.search);
+    params.set('list', newId);
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    setItems([]);
+    setBuyers(initialBuyers);
+    setTotalAmount('');
+    setLoading(true);
+    setListId(newId);
+    setShowHistorico(false);
+  };
+
+  const handleOpenList = (id) => {
+    if (id === listId) { setShowHistorico(false); return; }
+    saveLastListId(id);
+    const params = new URLSearchParams(window.location.search);
+    params.set('list', id);
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    setLoading(true);
+    setListId(id);
+    setShowHistorico(false);
+  };
+
+  const handleRemoveFromHistory = (id) => {
+    removeHistoryEntry(id);
+    setListHistory(getHistory());
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-emerald-600">
@@ -196,6 +287,9 @@ function App() {
           <h1 className="text-lg font-extrabold tracking-tight text-slate-800">MERCADO FÁCIL <span className="text-emerald-500 font-medium">ACKER</span></h1>
         </div>
         <div className="flex items-center gap-3">
+          <button onClick={handleShowHistorico} className="p-2 text-slate-500 hover:bg-slate-100 hover:text-emerald-600 rounded-xl transition-all btn-ripple" title="Histórico de listas">
+            <History size={20} />
+          </button>
           <button onClick={shareList} className="p-2 text-slate-500 hover:bg-slate-100 hover:text-emerald-600 rounded-xl transition-all btn-ripple">
             <Share2 size={20} />
           </button>
@@ -215,6 +309,7 @@ function App() {
           onProcessText={handleProcessText}
           onToggleItem={toggleItem}
           onRemoveItem={removeItem}
+          onEditItem={editItem}
           onClearChecked={clearChecked}
         />
 
@@ -249,6 +344,16 @@ function App() {
           </p>
         </footer>
       </main>
+
+      <HistoricoModal
+        show={showHistorico}
+        onClose={() => setShowHistorico(false)}
+        history={listHistory}
+        currentListId={listId}
+        onOpenList={handleOpenList}
+        onNewList={handleNewList}
+        onRemoveFromHistory={handleRemoveFromHistory}
+      />
     </div>
   );
 }

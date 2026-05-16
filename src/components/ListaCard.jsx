@@ -3,6 +3,8 @@ import {
   CheckCircle2,
   Circle,
   Trash2,
+  MoreVertical,
+  Pencil,
   ClipboardPaste,
   X,
 } from 'lucide-react';
@@ -39,9 +41,13 @@ function CategoryChip({ category, active, onClick }) {
 }
 
 // Componente de item individual
-function ListItem({ item, onToggle, onRemove }) {
+function ListItem({ item, onToggle, onRemove, onEdit }) {
   const [bouncing, setBouncing] = useState(false);
   const [flashing, setFlashing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(item.text);
+  const inputRef = useRef(null);
   const category = detectCategory(item.text);
 
   const handleToggle = useCallback(() => {
@@ -52,6 +58,26 @@ function ListItem({ item, onToggle, onRemove }) {
     onToggle(item.id);
   }, [item.id, onToggle]);
 
+  const handleStartEdit = () => {
+    setEditText(item.text);
+    setEditing(true);
+    setMenuOpen(false);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const handleSaveEdit = () => {
+    const trimmed = editText.trim();
+    if (trimmed && trimmed !== item.text) {
+      onEdit(item.id, trimmed);
+    }
+    setEditing(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') handleSaveEdit();
+    if (e.key === 'Escape') { setEditing(false); setEditText(item.text); }
+  };
+
   return (
     <li
       className={`list-item divider-subtle ${flashing ? 'animate-haptic' : ''} ${
@@ -61,7 +87,7 @@ function ListItem({ item, onToggle, onRemove }) {
       <div className="flex items-center justify-between px-4 py-3 gap-3">
         <div
           className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
-          onClick={handleToggle}
+          onClick={editing ? undefined : handleToggle}
         >
           <span className={bouncing ? 'animate-check-bounce' : ''}>
             {item.checked ? (
@@ -70,22 +96,60 @@ function ListItem({ item, onToggle, onRemove }) {
               <Circle size={22} className="text-slate-600 flex-shrink-0" />
             )}
           </span>
-          <span
-            className={`text-sm leading-snug truncate ${
-              item.checked
-                ? 'line-through text-slate-400'
-                : 'text-slate-700'
-            }`}
-          >
-            {item.text}
-          </span>
+          {editing ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              onBlur={handleSaveEdit}
+              onKeyDown={handleKeyDown}
+              className="flex-1 text-sm bg-emerald-50 border border-emerald-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+            />
+          ) : (
+            <span
+              className={`text-sm leading-snug truncate ${
+                item.checked
+                  ? 'line-through text-slate-400'
+                  : 'text-slate-700'
+              }`}
+            >
+              {item.text}
+            </span>
+          )}
         </div>
-        <button
-          onClick={() => onRemove(item.id)}
-          className="p-1.5 text-slate-600 hover:text-red-400 transition-colors flex-shrink-0 btn-ripple rounded-lg"
-        >
-          <Trash2 size={15} />
-        </button>
+
+        {/* Menu de ações (⋮) */}
+        <div className="relative flex-shrink-0">
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors btn-ripple rounded-lg"
+          >
+            <MoreVertical size={16} />
+          </button>
+
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-slate-100 py-1 min-w-[150px]" style={{ animation: 'fadeIn .15s ease' }}>
+                <button
+                  onClick={handleStartEdit}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <Pencil size={14} className="text-emerald-500" />
+                  Editar nome
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(false); onRemove(item.id); }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  Excluir
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </li>
   );
@@ -99,6 +163,7 @@ export default function ListaCard({
   onProcessText,
   onToggleItem,
   onRemoveItem,
+  onEditItem,
   onClearChecked,
 }) {
   const [activeFilter, setActiveFilter] = useState(null); // null = todos
@@ -217,6 +282,7 @@ export default function ListaCard({
                     item={item}
                     onToggle={onToggleItem}
                     onRemove={onRemoveItem}
+                    onEdit={onEditItem}
                   />
                 ))
               : // Modo todos: agrupado por categoria
@@ -239,6 +305,7 @@ export default function ListaCard({
                           item={item}
                           onToggle={onToggleItem}
                           onRemove={onRemoveItem}
+                          onEdit={onEditItem}
                         />
                       ))}
                   </React.Fragment>
